@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
-import { Loader2 } from 'lucide-react'
+import { Loader2 } from "lucide-react"
 
 // Student registration form schema
 const studentFormSchema = z.object({
@@ -193,7 +193,8 @@ export default function RegisterPage() {
           console.error("Auto-login failed:", result.error)
           router.push("/login")
         } else {
-          router.push("/dashboard")
+          // Redirect to student dashboard
+          router.push("/dashboard/student/dashboard")
         }
       } else {
         throw new Error(data.message || "Registration failed")
@@ -251,7 +252,8 @@ export default function RegisterPage() {
           console.error("Auto-login failed:", result.error)
           router.push("/login")
         } else {
-          router.push("/dashboard")
+          // Redirect to teacher dashboard
+          router.push("/dashboard/teacher")
         }
       } else {
         throw new Error(data.message || "Registration failed")
@@ -357,7 +359,9 @@ export default function RegisterPage() {
                   name="rollNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Roll Number <span className="text-red-500">*</span></FormLabel>
+                      <FormLabel>
+                        Roll Number <span className="text-red-500">*</span>
+                      </FormLabel>
                       <FormControl>
                         <Input type="number" placeholder="Enter your roll number" {...field} />
                       </FormControl>

@@ -21,7 +21,6 @@ import {
   Bell,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ModeToggle } from "@/components/mode-toggle"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -31,6 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useSession } from "next-auth/react"
 
 export default function DashboardLayout({
   children,
@@ -40,18 +40,35 @@ export default function DashboardLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const pathname = usePathname()
   const router = useRouter()
+  const { data: session, status } = useSession()
   const [userRole, setUserRole] = useState<string>("student")
+  const [userData, setUserData] = useState({
+    name: "",
+    role: "",
+    email: "",
+  })
 
-  // Determine user role based on URL path
+  // Determine user role based on URL path and session
   useEffect(() => {
     if (pathname.includes("/admin")) {
       setUserRole("admin")
     } else if (pathname.includes("/parent")) {
       setUserRole("parent")
+    } else if (pathname.includes("/teacher")) {
+      setUserRole("teacher")
     } else {
       setUserRole("student")
     }
-  }, [pathname])
+
+    // Set user data from session
+    if (session?.user) {
+      setUserData({
+        name: session.user.name || "",
+        role: session.user.role || userRole,
+        email: session.user.email || "",
+      })
+    }
+  }, [pathname, session, userRole])
 
   // Define navigation based on user role from URL path
   const getNavigation = () => {
@@ -83,7 +100,18 @@ export default function DashboardLayout({
         { name: "Settings", href: "/dashboard/admin/settings", icon: Settings },
       ]
     }
-
+    // Teacher navigation
+    else if (userRole === "teacher") {
+      navigation = [
+        { name: "Dashboard", href: "/dashboard/teacher", icon: Home },
+        { name: "Students", href: "/dashboard/teacher/students", icon: Users },
+        { name: "Attendance", href: "/dashboard/teacher/attendance", icon: Calendar },
+        { name: "Marks", href: "/dashboard/teacher/marks", icon: BarChart },
+        { name: "Schedule", href: "/dashboard/teacher/schedule", icon: Calendar },
+        { name: "Profile", href: "/dashboard/teacher/profile", icon: User },
+        { name: "Settings", href: "/dashboard/teacher/settings", icon: Settings },
+      ]
+    }
     // Parent navigation
     else if (userRole === "parent") {
       navigation = [
@@ -101,31 +129,6 @@ export default function DashboardLayout({
   }
 
   const navigation = getNavigation()
-
-  // Mock user data based on role
-  const getUserData = () => {
-    if (userRole === "admin") {
-      return {
-        name: "Aditya Singh",
-        role: "Admin",
-        email: "aditya03singh2003@gmail.com",
-      }
-    } else if (userRole === "parent") {
-      return {
-        name: "Rajesh Sharma",
-        role: "Parent",
-        email: "parent@sankalp95.com",
-      }
-    } else {
-      return {
-        name: "Rahul Kumar",
-        role: "Student",
-        email: "student@sankalp95.com",
-      }
-    }
-  }
-
-  const userData = getUserData()
 
   return (
     <div className="flex min-h-screen">
@@ -233,9 +236,8 @@ export default function DashboardLayout({
               </DropdownMenu>
               <div className="flex flex-col">
                 <span className="text-sm font-medium">{userData.name}</span>
-                <span className="text-xs text-muted-foreground">{userData.role}</span>
+                <span className="text-xs text-muted-foreground capitalize">{userData.role}</span>
               </div>
-              <ModeToggle />
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -248,7 +250,6 @@ export default function DashboardLayout({
                     .join("") || "US"}
                 </AvatarFallback>
               </Avatar>
-              <ModeToggle />
             </div>
           )}
         </div>
