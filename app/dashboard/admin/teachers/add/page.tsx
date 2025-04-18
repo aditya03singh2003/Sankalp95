@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -76,7 +76,6 @@ export default function AddTeacherPage() {
     })
   }
 
-  // Update the handleSubmit function to fix the employeeId issue and use the new teacher ID format
   const handleSubmit = async (e) => {
     e.preventDefault()
     setIsSubmitting(true)
@@ -104,7 +103,12 @@ export default function AddTeacherPage() {
       // Use the teacherId as the employeeId
       const uniqueEmployeeId = generatedTeacherId
 
-      console.log("Submitting teacher with phone:", formData.contactNumber);
+      console.log("Submitting teacher with data:", {
+        ...formData,
+        teacherId: generatedTeacherId,
+        employeeId: uniqueEmployeeId,
+        phone: formData.contactNumber,
+      })
 
       const response = await fetch("/api/teachers/add", {
         method: "POST",
@@ -123,6 +127,7 @@ export default function AddTeacherPage() {
       const data = await response.json()
 
       if (!response.ok) {
+        console.error("API error response:", data)
         if (data.error === "Employee ID already exists") {
           setErrorMessage(
             data.message ||

@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import Student from "@/models/Student"
 import StudentAttendance from "@/models/StudentAttendance"
-import { parse, isValid } from "date-fns"
+import { parse, isValid, format } from "date-fns"
 import mongoose from "mongoose"
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -105,14 +105,22 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     const data = await request.json()
-    if (!data.date || !data.status) {
-      return NextResponse.json({ error: "Date and status are required" }, { status: 400 })
+    if (!data.date || !data.status || !data.subject) {
+      return NextResponse.json({ error: "Date, status, and subject are required" }, { status: 400 })
     }
 
     await connectToDatabase()
 
     // Find student
-    const student = await Student.findById(id)
+    let student
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      student = await Student.findById(id)
+    }
+
+    if (!student) {
+      student = await Student.findOne({ studentId: id })
+    }
+
     if (!student) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
     }
@@ -128,12 +136,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Invalid date format" }, { status: 400 })
     }
 
+    // Check if the date is in the future
+    if (attendanceDate > new Date()) {
+      return NextResponse.json({ error: "Cannot mark attendance for future dates" }, { status: 400 })
+    }
+
+    // Format date to remove time component for comparison
+    const formattedDate = format(attendanceDate, "yyyy-MM-dd")
+
     // Check if attendance record already exists
     const existingRecord = await StudentAttendance.findOne({
       studentId: student._id,
+      subject: data.subject,
       date: {
-        $gte: new Date(attendanceDate.setHours(0, 0, 0, 0)),
-        $lt: new Date(attendanceDate.setHours(23, 59, 59, 999)),
+        $gte: new Date(`${formattedDate}T00:00:00.000Z`),
+        $lt: new Date(`${formattedDate}T23:59:59.999Z`),
       },
     })
 
@@ -142,19 +159,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     if (existingRecord) {
       // Update existing record
       existingRecord.status = data.status
-      existingRecord.subject = data.subject || existingRecord.subject
-      existingRecord.teacher = data.teacher || existingRecord.teacher
-      existingRecord.notes = data.notes || existingRecord.notes
+      existingRecord.notes = data.notes || existingRecord.notes || ""
+      existingRecord.markedBy = session.user.id
       attendanceRecord = await existingRecord.save()
     } else {
       // Create new record
       attendanceRecord = await StudentAttendance.create({
         studentId: student._id,
         date: attendanceDate,
+        class: student.class,
+        subject: data.subject,
         status: data.status,
-        subject: data.subject || "",
-        teacher: data.teacher || "",
         notes: data.notes || "",
+        markedBy: session.user.id,
       })
     }
 

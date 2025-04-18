@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-import { connectToDatabase } from "@/lib/db" // Changed from dbConnect to connectToDatabase
+import { connectToDatabase } from "@/lib/db"
 import User from "@/models/User"
 import Student from "@/models/Student"
 import Teacher from "@/models/Teacher"
@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     const { role, email, password } = data
 
-    await connectToDatabase() // Changed from dbConnect() to connectToDatabase()
+    await connectToDatabase()
 
     // Check if user already exists
     const existingUser = await User.findOne({ email })
@@ -103,52 +103,86 @@ export async function POST(request: NextRequest) {
         })
       }
     } else if (role === "teacher") {
-      // Create new teacher
-      const { name, classes, specialization, experience, phone } = data
+      try {
+        // Create new teacher
+        const { name, classes, specialization, experience, phone, contactNumber } = data
 
-      if (!name || !classes || !specialization || !experience) {
-        return NextResponse.json({ message: "Missing required teacher information" }, { status: 400 })
-      }
+        // Log the received data for debugging
+        console.log("Teacher registration data:", { name, classes, specialization, experience, phone, contactNumber })
 
-      const teacher = new Teacher({
-        name,
-        email,
-        password: hashedPassword,
-        classes,
-        specialization,
-        experience,
-        phone: phone || "",
-      })
+        if (!name || !classes || !specialization || !experience) {
+          return NextResponse.json({ message: "Missing required teacher information" }, { status: 400 })
+        }
 
-      await teacher.save()
+        // Use either contactNumber or phone, ensuring at least one is present
+        const teacherPhone = contactNumber || phone || ""
+        if (!teacherPhone) {
+          return NextResponse.json({ message: "Contact number is required" }, { status: 400 })
+        }
 
-      // Create user account
-      const user = new User({
-        name,
-        email,
-        password: hashedPassword,
-        role: "teacher",
-        teacherId: teacher.teacherId,
-      })
+        // Generate teacherId from phone number
+        const last5Digits = teacherPhone.replace(/\D/g, "").slice(-5)
+        const teacherId = `TEACH${last5Digits}`
 
-      await user.save()
+        const teacher = new Teacher({
+          name,
+          email,
+          password: hashedPassword,
+          classes: Array.isArray(classes) ? classes : [classes],
+          specialization,
+          experience,
+          contactNumber: teacherPhone,
+          phone: teacherPhone,
+          teacherId,
+        })
 
-      // Return user info for auto-login
-      return NextResponse.json({
-        message: "Teacher registered successfully",
-        user: {
-          id: user._id.toString(),
-          name: user.name,
-          email: user.email,
-          role: user.role,
+        await teacher.save()
+
+        // Create user account
+        const user = new User({
+          name,
+          email,
+          password: hashedPassword,
+          role: "teacher",
           teacherId: teacher.teacherId,
-        },
-      })
+        })
+
+        await user.save()
+
+        // Return user info for auto-login
+        return NextResponse.json({
+          message: "Teacher registered successfully",
+          user: {
+            id: user._id.toString(),
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            teacherId: teacher.teacherId,
+          },
+        })
+      } catch (teacherError) {
+        console.error("Teacher creation error:", teacherError)
+        return NextResponse.json(
+          {
+            message: "Failed to create teacher account",
+            error: teacherError.message,
+            stack: process.env.NODE_ENV === "development" ? teacherError.stack : undefined,
+          },
+          { status: 500 },
+        )
+      }
     } else {
       return NextResponse.json({ message: "Invalid role" }, { status: 400 })
     }
   } catch (error) {
     console.error("Registration error:", error)
-    return NextResponse.json({ message: error.message || "Registration failed" }, { status: 500 })
+    return NextResponse.json(
+      {
+        message: "Registration failed",
+        error: error.message,
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+      },
+      { status: 500 },
+    )
   }
 }

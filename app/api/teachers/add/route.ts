@@ -3,6 +3,7 @@ import { connectToDatabase } from "@/lib/db"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import Teacher from "@/models/Teacher"
+import User from "@/models/User"
 import bcrypt from "bcryptjs"
 
 export async function POST(request: NextRequest) {
@@ -15,10 +16,18 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json()
 
+    // Log the received data for debugging
+    console.log("Admin adding teacher with data:", data)
+
+    // Ensure we have a contact number
+    const contactNumber = data.contactNumber || data.phone || ""
+    if (!contactNumber) {
+      return NextResponse.json({ error: "Contact number is required" }, { status: 400 })
+    }
+
     // Generate teacherId from phone number if not provided
     if (!data.teacherId) {
-      const phoneNumber = data.contactNumber || data.phone || ""
-      const last5Digits = phoneNumber.replace(/\D/g, "").slice(-5)
+      const last5Digits = contactNumber.replace(/\D/g, "").slice(-5)
       data.teacherId = `TEACH${last5Digits}`
     }
 
@@ -26,8 +35,6 @@ export async function POST(request: NextRequest) {
     if (!data.employeeId) {
       data.employeeId = data.teacherId
     }
-
-    console.log("Creating new teacher with data:", data)
 
     await connectToDatabase()
 
@@ -81,13 +88,13 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(data.password, salt)
     data.password = hashedPassword
 
-    // Create the teacher
+    // Create the teacher with both contactNumber and phone fields
     const teacher = new Teacher({
       name: data.name,
       email: data.email,
       password: data.password,
-      contactNumber: data.contactNumber || data.phone,
-      phone: data.contactNumber || data.phone, // Add this line to ensure phone is saved
+      contactNumber: contactNumber,
+      phone: contactNumber,
       address: data.address,
       qualification: data.qualification,
       specialization: data.specialization,
@@ -106,6 +113,18 @@ export async function POST(request: NextRequest) {
     await teacher.save()
     console.log("Teacher created successfully:", teacher)
 
+    // Create a user account for the teacher
+    const user = new User({
+      name: data.name,
+      email: data.email,
+      password: data.password, // Already hashed
+      role: "teacher",
+      teacherId: teacher.teacherId,
+    })
+
+    await user.save()
+    console.log("User account created for teacher:", user)
+
     // Remove password from response
     const teacherResponse = teacher.toObject()
     delete teacherResponse.password
@@ -119,8 +138,9 @@ export async function POST(request: NextRequest) {
     console.error("Error creating teacher:", error)
     return NextResponse.json(
       {
-        error: error.message || "Failed to create teacher",
-        details: error.toString(),
+        error: "Failed to create teacher",
+        details: error.message,
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
       },
       { status: 500 },
     )

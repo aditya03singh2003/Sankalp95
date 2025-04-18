@@ -32,6 +32,10 @@ const StudentAttendanceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    notes: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true },
 )

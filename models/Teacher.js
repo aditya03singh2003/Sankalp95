@@ -22,7 +22,6 @@ const TeacherSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: true,
     },
     address: {
       type: String,
@@ -80,14 +79,25 @@ TeacherSchema.pre("save", function (next) {
   }
 
   // If teacherId is not set but we have a phone number, generate one
-  if (!this.teacherId && this.contactNumber) {
-    const last5Digits = this.contactNumber.replace(/\D/g, "").slice(-5)
+  if (!this.teacherId && (this.contactNumber || this.phone)) {
+    const phoneNumber = this.contactNumber || this.phone || ""
+    const last5Digits = phoneNumber.replace(/\D/g, "").slice(-5)
     this.teacherId = `TEACH${last5Digits}`
 
     // Also set employeeId if not already set
     if (!this.employeeId) {
       this.employeeId = this.teacherId
     }
+  }
+
+  // Ensure phone field is set from contactNumber if empty
+  if (!this.phone && this.contactNumber) {
+    this.phone = this.contactNumber
+  }
+
+  // Ensure contactNumber field is set from phone if empty
+  if (!this.contactNumber && this.phone) {
+    this.contactNumber = this.phone
   }
 
   next()

@@ -2,7 +2,18 @@
 
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from "date-fns"
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameDay,
+  isBefore,
+  isAfter,
+  parseISO,
+  addMonths,
+  subMonths,
+} from "date-fns"
 import { CalendarIcon, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -23,15 +34,52 @@ export default function AttendancePage() {
   const [attendanceSummary, setAttendanceSummary] = useState({
     present: 0,
     absent: 0,
+    leave: 0,
     total: 0,
     percentage: 0,
+    registrationDate: null,
   })
+  const [registrationDate, setRegistrationDate] = useState<Date | null>(null)
 
   useEffect(() => {
     if (status === "authenticated" && session?.user?.id) {
+      fetchAttendanceSummary()
       fetchAttendance()
     }
   }, [status, session, month])
+
+  const fetchAttendanceSummary = async () => {
+    try {
+      const monthString = format(month, "yyyy-MM")
+      const response = await fetch(`/api/students/${session?.user.id}/attendance/summary?month=${monthString}`)
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch attendance summary: ${response.status} ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      setAttendanceSummary({
+        present: data.present || 0,
+        absent: data.absent || 0,
+        leave: data.leave || 0,
+        total: data.total || 0,
+        percentage: data.percentage || 0,
+        registrationDate: data.registrationDate,
+      })
+
+      if (data.registrationDate) {
+        setRegistrationDate(parseISO(data.registrationDate))
+      }
+    } catch (error) {
+      console.error("Error fetching attendance summary:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load attendance summary. Please try again later.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const fetchAttendance = async () => {
     try {
@@ -48,28 +96,9 @@ export default function AttendancePage() {
       // Ensure we have valid data
       if (Array.isArray(data)) {
         setAttendanceData(data)
-
-        // Calculate summary
-        const present = data.filter((record) => record.status === "present").length
-        const total = data.length
-        const percentage = total > 0 ? Math.round((present / total) * 100) : 0
-
-        setAttendanceSummary({
-          present,
-          absent: total - present,
-          total,
-          percentage,
-        })
       } else {
         console.error("Invalid attendance data format:", data)
         setAttendanceData([])
-        setAttendanceSummary({
-          present: 0,
-          absent: 0,
-          total: 0,
-          percentage: 0,
-        })
-
         toast({
           title: "Error",
           description: "Failed to load attendance data. Invalid format received.",
@@ -84,31 +113,17 @@ export default function AttendancePage() {
         variant: "destructive",
       })
       setAttendanceData([])
-      setAttendanceSummary({
-        present: 0,
-        absent: 0,
-        total: 0,
-        percentage: 0,
-      })
     } finally {
       setLoading(false)
     }
   }
 
   const previousMonth = () => {
-    setMonth((prev) => {
-      const newMonth = new Date(prev)
-      newMonth.setMonth(newMonth.getMonth() - 1)
-      return newMonth
-    })
+    setMonth((prev) => subMonths(prev, 1))
   }
 
   const nextMonth = () => {
-    setMonth((prev) => {
-      const newMonth = new Date(prev)
-      newMonth.setMonth(newMonth.getMonth() + 1)
-      return newMonth
-    })
+    setMonth((prev) => addMonths(prev, 1))
   }
 
   const daysInMonth = eachDayOfInterval({
@@ -117,7 +132,7 @@ export default function AttendancePage() {
   })
 
   const getAttendanceForDay = (day: Date) => {
-    return attendanceData.find((record) => {
+    const dayRecords = attendanceData.filter((record) => {
       try {
         const recordDate = new Date(record.date)
         return isSameDay(recordDate, day)
@@ -125,6 +140,22 @@ export default function AttendancePage() {
         return false
       }
     })
+
+    // If any record for the day is "present", return present
+    if (dayRecords.some((record) => record.status === "present")) {
+      return { status: "present", records: dayRecords }
+    }
+    // If no present but any leave, return leave
+    else if (dayRecords.some((record) => record.status === "leave")) {
+      return { status: "leave", records: dayRecords }
+    }
+    // If there are records but none are present or leave, return absent
+    else if (dayRecords.length > 0) {
+      return { status: "absent", records: dayRecords }
+    }
+
+    // No records found
+    return null
   }
 
   const formatDate = (dateString: string) => {
@@ -138,6 +169,16 @@ export default function AttendancePage() {
       return "Invalid Date"
     }
   }
+
+  // Group attendance records by date for the table view
+  const groupedAttendanceData = attendanceData.reduce((acc, record) => {
+    const dateStr = format(new Date(record.date), "yyyy-MM-dd")
+    if (!acc[dateStr]) {
+      acc[dateStr] = []
+    }
+    acc[dateStr].push(record)
+    return acc
+  }, {})
 
   return (
     <div className="space-y-6">
@@ -186,9 +227,33 @@ export default function AttendancePage() {
                 <p className="text-2xl font-bold text-red-600">{attendanceSummary.absent}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Percentage</p>
-                <p className="text-2xl font-bold">{attendanceSummary.percentage}%</p>
+                <p className="text-sm font-medium text-muted-foreground">Leave</p>
+                <p className="text-2xl font-bold text-amber-600">{attendanceSummary.leave}</p>
               </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium">Attendance Rate</span>
+                <span className="text-sm font-bold">{attendanceSummary.percentage}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className={cn(
+                    "h-2.5 rounded-full",
+                    attendanceSummary.percentage >= 90
+                      ? "bg-green-600"
+                      : attendanceSummary.percentage >= 75
+                        ? "bg-amber-500"
+                        : "bg-red-600",
+                  )}
+                  style={{ width: `${attendanceSummary.percentage}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Based on {attendanceSummary.total} school days since{" "}
+                {registrationDate ? format(registrationDate, "PPP") : "registration"}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -226,15 +291,27 @@ export default function AttendancePage() {
                   <div key={`empty-${i}`} className="h-10 rounded-md" />
                 ))}
                 {daysInMonth.map((day) => {
-                  const attendance = getAttendanceForDay(day)
+                  const today = new Date()
+                  const isFutureDate = isAfter(day, today)
+                  const isPastRegistration = registrationDate ? !isBefore(day, registrationDate) : true
+
+                  // Only show attendance status for past dates after registration
+                  const attendance = !isFutureDate && isPastRegistration ? getAttendanceForDay(day) : null
+
                   return (
                     <div
                       key={day.toString()}
                       className={cn(
                         "flex h-10 items-center justify-center rounded-md text-sm",
-                        attendance && attendance.status === "present" && "bg-green-100 text-green-900 font-medium",
-                        attendance && attendance.status === "absent" && "bg-red-100 text-red-900 font-medium",
+                        isSameDay(day, today) && "border-2 border-blue-500",
+                        !isFutureDate && isPastRegistration && !attendance && "bg-gray-100", // School day with no record
+                        attendance?.status === "present" && "bg-green-100 text-green-900 font-medium",
+                        attendance?.status === "absent" && "bg-red-100 text-red-900 font-medium",
+                        attendance?.status === "leave" && "bg-amber-100 text-amber-900 font-medium",
+                        isFutureDate && "text-gray-400", // Future date
+                        registrationDate && isBefore(day, registrationDate) && "text-gray-300", // Before registration
                       )}
+                      title={attendance ? `${format(day, "PPP")}: ${attendance.status}` : format(day, "PPP")}
                     >
                       {format(day, "d")}
                     </div>
@@ -242,6 +319,25 @@ export default function AttendancePage() {
                 })}
               </div>
             )}
+
+            <div className="flex justify-center mt-4 gap-4 text-sm">
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-green-100 mr-1"></div>
+                <span>Present</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-red-100 mr-1"></div>
+                <span>Absent</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-amber-100 mr-1"></div>
+                <span>Leave</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-gray-100 mr-1"></div>
+                <span>No Record</span>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -264,31 +360,57 @@ export default function AttendancePage() {
                     <TableHead>Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Subject</TableHead>
-                    <TableHead>Teacher</TableHead>
                     <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {attendanceData.length > 0 ? (
-                    attendanceData.map((record) => (
-                      <TableRow key={record._id}>
-                        <TableCell>{formatDate(record.date)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={record.status === "present" ? "default" : "destructive"}
-                            className={cn(record.status === "present" && "bg-green-500 hover:bg-green-600")}
-                          >
-                            {record.status === "present" ? "Present" : "Absent"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{record.subject || "N/A"}</TableCell>
-                        <TableCell>{record.teacher || "N/A"}</TableCell>
-                        <TableCell>{record.notes || "N/A"}</TableCell>
-                      </TableRow>
-                    ))
+                  {Object.entries(groupedAttendanceData).length > 0 ? (
+                    Object.entries(groupedAttendanceData)
+                      .sort(([dateA], [dateB]) => new Date(dateB).getTime() - new Date(dateA).getTime())
+                      .map(([dateStr, records]) => (
+                        <TableRow key={dateStr}>
+                          <TableCell className="font-medium">{format(new Date(dateStr), "PPP")}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {(records as any[]).map((record, idx) => (
+                                <Badge
+                                  key={`${record._id}-${idx}`}
+                                  variant="outline"
+                                  className={cn(
+                                    "text-xs",
+                                    record.status === "present" && "bg-green-100 text-green-900",
+                                    record.status === "absent" && "bg-red-100 text-red-900",
+                                    record.status === "leave" && "bg-amber-100 text-amber-900",
+                                  )}
+                                >
+                                  {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {(records as any[]).map((record, idx) => (
+                                <span key={`${record._id}-subject-${idx}`} className="text-sm">
+                                  {record.subject || "N/A"}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {(records as any[]).map((record, idx) => (
+                                <span key={`${record._id}-notes-${idx}`} className="text-sm text-muted-foreground">
+                                  {record.notes || "N/A"}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                      <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
                         No attendance records found for this month
                       </TableCell>
                     </TableRow>
