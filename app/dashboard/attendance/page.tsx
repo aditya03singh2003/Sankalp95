@@ -13,8 +13,9 @@ import {
   parseISO,
   addMonths,
   subMonths,
+  isWeekend,
 } from "date-fns"
-import { CalendarIcon, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
+import { CalendarIcon, ChevronLeft, ChevronRight, Loader2, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -23,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export default function AttendancePage() {
   const { data: session, status } = useSession()
@@ -38,8 +40,10 @@ export default function AttendancePage() {
     total: 0,
     percentage: 0,
     registrationDate: null,
+    attendedDays: 0,
   })
   const [registrationDate, setRegistrationDate] = useState<Date | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
 
   useEffect(() => {
     if (status === "authenticated" && session?.user?.id) {
@@ -66,7 +70,11 @@ export default function AttendancePage() {
         total: data.total || 0,
         percentage: data.percentage || 0,
         registrationDate: data.registrationDate,
+        attendedDays: data.attendedDays || 0,
       })
+
+      // Store debug info
+      setDebugInfo(data.dateRange || null)
 
       if (data.registrationDate) {
         setRegistrationDate(parseISO(data.registrationDate))
@@ -235,7 +243,23 @@ export default function AttendancePage() {
             <div className="mt-4 pt-4 border-t">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-medium">Attendance Rate</span>
-                <span className="text-sm font-bold">{attendanceSummary.percentage}%</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center">
+                        <span className="text-sm font-bold">{attendanceSummary.percentage}%</span>
+                        <Info className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">
+                        {attendanceSummary.attendedDays} days attended out of {attendanceSummary.total} school days
+                        <br />
+                        (Present + Leave) ÷ Total School Days
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2.5">
                 <div
@@ -294,48 +318,69 @@ export default function AttendancePage() {
                   const today = new Date()
                   const isFutureDate = isAfter(day, today)
                   const isPastRegistration = registrationDate ? !isBefore(day, registrationDate) : true
+                  const isWeekendDay = isWeekend(day)
 
                   // Only show attendance status for past dates after registration
                   const attendance = !isFutureDate && isPastRegistration ? getAttendanceForDay(day) : null
 
                   return (
-                    <div
-                      key={day.toString()}
-                      className={cn(
-                        "flex h-10 items-center justify-center rounded-md text-sm",
-                        isSameDay(day, today) && "border-2 border-blue-500",
-                        !isFutureDate && isPastRegistration && !attendance && "bg-gray-100", // School day with no record
-                        attendance?.status === "present" && "bg-green-100 text-green-900 font-medium",
-                        attendance?.status === "absent" && "bg-red-100 text-red-900 font-medium",
-                        attendance?.status === "leave" && "bg-amber-100 text-amber-900 font-medium",
-                        isFutureDate && "text-gray-400", // Future date
-                        registrationDate && isBefore(day, registrationDate) && "text-gray-300", // Before registration
-                      )}
-                      title={attendance ? `${format(day, "PPP")}: ${attendance.status}` : format(day, "PPP")}
-                    >
-                      {format(day, "d")}
-                    </div>
+                    <TooltipProvider key={day.toString()}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className={cn(
+                              "flex h-10 items-center justify-center rounded-md text-sm",
+                              isSameDay(day, today) && "border-2 border-blue-500",
+                              !isFutureDate && isPastRegistration && !attendance && !isWeekendDay && "bg-gray-200", // School day with no record
+                              isWeekendDay && "bg-gray-50 text-gray-400", // Weekend
+                              attendance?.status === "present" && "bg-green-500 text-white font-medium",
+                              attendance?.status === "absent" && "bg-red-500 text-white font-medium",
+                              attendance?.status === "leave" && "bg-yellow-500 text-white font-medium",
+                              isFutureDate && "text-gray-400", // Future date
+                              registrationDate && isBefore(day, registrationDate) && "text-gray-300", // Before registration
+                            )}
+                          >
+                            {format(day, "d")}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {format(day, "PPP")}
+                            {isWeekendDay && " (Weekend)"}
+                            {attendance &&
+                              `: ${attendance.status.charAt(0).toUpperCase() + attendance.status.slice(1)}`}
+                            {!isFutureDate && isPastRegistration && !attendance && !isWeekendDay && ": No record"}
+                            {isFutureDate && ": Future date"}
+                            {registrationDate && isBefore(day, registrationDate) && ": Before registration"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )
                 })}
               </div>
             )}
 
-            <div className="flex justify-center mt-4 gap-4 text-sm">
+            <div className="flex flex-wrap justify-center mt-4 gap-4 text-sm">
               <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-green-100 mr-1"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500 mr-1"></div>
                 <span>Present</span>
               </div>
               <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-red-100 mr-1"></div>
+                <div className="w-3 h-3 rounded-full bg-red-500 mr-1"></div>
                 <span>Absent</span>
               </div>
               <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-amber-100 mr-1"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500 mr-1"></div>
                 <span>Leave</span>
               </div>
               <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-gray-100 mr-1"></div>
+                <div className="w-3 h-3 rounded-full bg-gray-200 mr-1"></div>
                 <span>No Record</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-gray-50 mr-1"></div>
+                <span>Weekend</span>
               </div>
             </div>
           </CardContent>
@@ -375,12 +420,11 @@ export default function AttendancePage() {
                               {(records as any[]).map((record, idx) => (
                                 <Badge
                                   key={`${record._id}-${idx}`}
-                                  variant="outline"
                                   className={cn(
-                                    "text-xs",
-                                    record.status === "present" && "bg-green-100 text-green-900",
-                                    record.status === "absent" && "bg-red-100 text-red-900",
-                                    record.status === "leave" && "bg-amber-100 text-amber-900",
+                                    "text-xs text-white",
+                                    record.status === "present" && "bg-green-500",
+                                    record.status === "absent" && "bg-red-500",
+                                    record.status === "leave" && "bg-yellow-500",
                                   )}
                                 >
                                   {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
