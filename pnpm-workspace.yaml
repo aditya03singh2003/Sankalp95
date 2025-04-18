@@ -1,4 +1,4 @@
-ignoredBuiltDependencies:
+onlyBuiltDependencies:
   - '@mongodb-js/zstd'
   - kerberos
   - mongodb-client-encryption

@@ -36,32 +36,46 @@ export default function AttendancePage() {
   const fetchAttendance = async () => {
     try {
       setLoading(true)
-      console.log(`Fetching attendance for user ${session?.user.id} for month ${format(month, "yyyy-MM")}`)
-
-      const response = await fetch(`/api/students/${session?.user.id}/attendance?month=${format(month, "yyyy-MM")}`)
+      const monthString = format(month, "yyyy-MM")
+      const response = await fetch(`/api/students/${session?.user.id}/attendance?month=${monthString}`)
 
       if (!response.ok) {
         throw new Error(`Failed to fetch attendance: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
-      console.log("Attendance data received:", data)
 
-      // Extract records from the response
-      const records = data.records || []
-      setAttendanceData(records)
+      // Ensure we have valid data
+      if (Array.isArray(data)) {
+        setAttendanceData(data)
 
-      // Calculate summary
-      const present = records.filter((record: any) => record.status === "present").length
-      const total = records.length
-      const percentage = total > 0 ? Math.round((present / total) * 100) : 0
+        // Calculate summary
+        const present = data.filter((record) => record.status === "present").length
+        const total = data.length
+        const percentage = total > 0 ? Math.round((present / total) * 100) : 0
 
-      setAttendanceSummary({
-        present,
-        absent: total - present,
-        total,
-        percentage,
-      })
+        setAttendanceSummary({
+          present,
+          absent: total - present,
+          total,
+          percentage,
+        })
+      } else {
+        console.error("Invalid attendance data format:", data)
+        setAttendanceData([])
+        setAttendanceSummary({
+          present: 0,
+          absent: 0,
+          total: 0,
+          percentage: 0,
+        })
+
+        toast({
+          title: "Error",
+          description: "Failed to load attendance data. Invalid format received.",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("Error fetching attendance:", error)
       toast({
@@ -105,7 +119,8 @@ export default function AttendancePage() {
   const getAttendanceForDay = (day: Date) => {
     return attendanceData.find((record) => {
       try {
-        return isSameDay(new Date(record.date), day)
+        const recordDate = new Date(record.date)
+        return isSameDay(recordDate, day)
       } catch (error) {
         return false
       }
@@ -114,9 +129,13 @@ export default function AttendancePage() {
 
   const formatDate = (dateString: string) => {
     try {
-      return format(new Date(dateString), "PPP")
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) {
+        return "Invalid Date"
+      }
+      return format(date, "PPP")
     } catch (error) {
-      return "Invalid date"
+      return "Invalid Date"
     }
   }
 
@@ -251,8 +270,8 @@ export default function AttendancePage() {
                 </TableHeader>
                 <TableBody>
                   {attendanceData.length > 0 ? (
-                    attendanceData.map((record, index) => (
-                      <TableRow key={record._id || index}>
+                    attendanceData.map((record) => (
+                      <TableRow key={record._id}>
                         <TableCell>{formatDate(record.date)}</TableCell>
                         <TableCell>
                           <Badge
@@ -263,7 +282,7 @@ export default function AttendancePage() {
                           </Badge>
                         </TableCell>
                         <TableCell>{record.subject || "N/A"}</TableCell>
-                        <TableCell>{record.teacher || record.markedBy || "N/A"}</TableCell>
+                        <TableCell>{record.teacher || "N/A"}</TableCell>
                         <TableCell>{record.notes || "N/A"}</TableCell>
                       </TableRow>
                     ))
